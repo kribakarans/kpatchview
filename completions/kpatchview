@@ -1,0 +1,30 @@
+# Bash completion for kpatchview
+
+_kpatchview_complete() {
+  local cur prev
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+  local commands
+  commands="inline side-by-side git-diff git-show help --help"
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    COMPREPLY=( $(compgen -W "${commands}" -- "$cur") )
+    return 0
+  fi
+
+  case "$prev" in
+    inline|side-by-side)
+      COMPREPLY=( $(compgen -f -- "$cur") )
+      return 0
+      ;;
+    git-diff|git-show)
+      COMPREPLY=()
+      return 0
+      ;;
+  esac
+
+  COMPREPLY=()
+}
+
+complete -F _kpatchview_complete kpatchview
