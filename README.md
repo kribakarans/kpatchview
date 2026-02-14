@@ -34,6 +34,7 @@ Side-by-side view:
 
 ```bash
 kpatchview side-by-side /path/to/patch.diff
+kpatchview ss /path/to/patch.diff
 ```
 
 Default behavior (side-by-side):
@@ -48,12 +49,14 @@ Side-by-side diff:
 
 ```bash
 kpatchview git-diff
+kpatchview gd
 ```
 
 Side-by-side show:
 
 ```bash
 kpatchview git-show
+kpatchview gs
 ```
 
 You can pass any normal arguments to Git:
@@ -68,8 +71,8 @@ kpatchview git-show HEAD~1..HEAD
 #### Option 1: Git aliases (recommended)
 
 ```bash
-git config --global alias.vimdiff "!kpatchview git-diff"
-git config --global alias.vimshow "!kpatchview git-show"
+git config --global alias.vimdiff '!kpatchview git-diff'
+git config --global alias.vimshow '!kpatchview git-show'
 ```
 
 Usage:
@@ -82,8 +85,8 @@ git vimshow HEAD~1..HEAD
 #### Option 2: Pager override
 
 ```bash
-git config --global core.pager "kpatchview git-diff"
-git config --global pager.show "kpatchview git-show"
+git config --global pager.diff 'kpatchview git-diff'
+git config --global pager.show 'kpatchview git-show'
 ```
 
 ## Behavior

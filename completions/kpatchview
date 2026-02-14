@@ -6,7 +6,7 @@ _kpatchview_complete() {
   prev="${COMP_WORDS[COMP_CWORD-1]}"
 
   local commands
-  commands="inline side-by-side git-diff git-show help --help"
+  commands="inline side-by-side ss git-diff gd git-show gs help --help"
 
   if [[ ${COMP_CWORD} -eq 1 ]]; then
     COMPREPLY=( $(compgen -W "${commands}" -- "$cur") )
@@ -14,11 +14,11 @@ _kpatchview_complete() {
   fi
 
   case "$prev" in
-    inline|side-by-side)
+    inline|side-by-side|ss)
       COMPREPLY=( $(compgen -f -- "$cur") )
       return 0
       ;;
-    git-diff|git-show)
+    git-diff|gd|git-show|gs)
       COMPREPLY=()
       return 0
       ;;
