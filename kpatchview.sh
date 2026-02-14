@@ -108,17 +108,34 @@ open_vimdiff() {
                 -- "$LEFT_PANE" "$RIGHT_PANE" </dev/tty
 }
 
-insert_summary_after_header() {
+open_vimdiff_with_summary() {
         local summary_file="$1"
-        local pane_file="$2"
-        local out_file="$3"
-        local tail_start=$((HEADER_LINE_COUNT + 1))
-        {
-                head -n "$HEADER_LINE_COUNT" "$pane_file"
-                cat "$summary_file"
-                echo
-                tail -n +"$tail_start" "$pane_file"
-        } >"$out_file"
+        local vimcmds="$WORKDIR/vimcmds.vim"
+        cat >"$vimcmds" <<'VIM'
+set shortmess+=FI
+set nofoldenable
+windo set nofoldenable
+function! KpatchTabLine()
+  let s=""
+  for i in range(tabpagenr("$"))
+    let tab=i+1
+    let winnr=tabpagewinnr(tab)
+    let buf=tabpagebuflist(tab)[winnr-1]
+    let label=bufname(buf)
+    if label==""
+      let label="[No Name]"
+    endif
+    let hl=(tab==tabpagenr())?"%#TabLineSel#":"%#TabLine#"
+    let s.=hl." ".label." "
+  endfor
+  let s.="%#TabLineFill#"
+  return s
+endfunction
+set tabline=%!KpatchTabLine()
+file FileChanges
+VIM
+        printf 'tabnew %s\nfile Summary\nsetlocal filetype=git\ntabfirst\n' "$summary_file" >>"$vimcmds"
+        vim -d -R -S "$vimcmds" -- "$LEFT_PANE" "$RIGHT_PANE" </dev/tty
 }
 
 render_unified_to_panes() {
@@ -217,12 +234,7 @@ git_show_inline() {
         git show "$@" | render_unified_to_panes "$LEFT_PANE" "$RIGHT_PANE" "$BOX_WIDTH"
         git show --no-patch --stat --summary "$@" >"$summary"
 
-        if [[ -s "$summary" ]]; then
-                insert_summary_after_header "$summary" "$LEFT_PANE" "$WORKDIR/left.tmp" && mv "$WORKDIR/left.tmp" "$LEFT_PANE"
-                insert_summary_after_header "$summary" "$RIGHT_PANE" "$WORKDIR/right.tmp" && mv "$WORKDIR/right.tmp" "$RIGHT_PANE"
-        fi
-
-        open_vimdiff
+        open_vimdiff_with_summary "$summary"
 }
 
 mode="${1:-}"
