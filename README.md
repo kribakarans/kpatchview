@@ -63,9 +63,9 @@ kpatchview git-diff --stat
 kpatchview git-show HEAD~1..HEAD
 ```
 
-## Hook into Git
+### Hook into Git
 
-### Option 1: Git aliases (recommended)
+#### Option 1: Git aliases (recommended)
 
 ```bash
 git config --global alias.vimdiff "!kpatchview git-diff"
@@ -79,7 +79,7 @@ git vimdiff
 git vimshow HEAD~1..HEAD
 ```
 
-### Option 2: Pager override
+#### Option 2: Pager override
 
 ```bash
 git config --global core.pager "kpatchview git-diff"
@@ -89,14 +89,13 @@ git config --global pager.show "kpatchview git-show"
 ## Behavior
 
 - Read-only mode is enforced for all views
-- Folding is disabled on open
-- File headers are rendered in a UTF box with the label `File | <name>`
+- File headers with the label `File | <name>`
 - git show prepends a summary (--stat --summary) above the diff in both panes
 - Vim reads input from /dev/tty to work as a Git pager
 
 ## Limitations
 
-- Side-by-side view reconstructs panes from unified diff output; it is best-effort.
 - Very large diffs may be slow in Vimdiff.
+- Side-by-side view reconstructs panes from unified diff output; it is best-effort.
 
 ---

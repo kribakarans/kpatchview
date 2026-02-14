@@ -45,7 +45,7 @@ calc_pane_width() {
         echo "$pane_width"
 }
 
-write_header() {
+render_header() {
         local title="$1"
         local pane_width="$2"
         local line_width=$((pane_width * 90 / 100))
@@ -57,30 +57,74 @@ write_header() {
         printf '\n%s\n%s\n' "$title" "$line"
 }
 
-inline_patch() {
-        local patch="$1"
-        require_file "$patch"
-        vim -R -c 'set shortmess+=FI' -c 'set nofoldenable' -c 'set filetype=diff' -- "$patch" </dev/tty
+write_header() {
+        render_header "$@"
 }
 
-side_by_side_patch() {
-        local patch="$1"
-        require_file "$patch"
+make_title() {
+        local label="$1"
+        shift
+        if (( $# > 0 )); then
+                echo "$label ($*)"
+        else
+                echo "$label"
+        fi
+}
 
-        local tmpdir
-        tmpdir="$(mktemp -d)"
-        local left="$tmpdir/left"
-        local right="$tmpdir/right"
-        local box_width
-        box_width="$(calc_box_width)"
-        local pane_width
-        pane_width="$(calc_pane_width)"
-        local title
-        title="PATCHVIEW ($patch)"
-        trap '[[ -n "${tmpdir:-}" ]] && rm -rf "$tmpdir"' EXIT
+init_panes() {
+        local title="$1"
+        local pane_width="$2"
+        local left="$3"
+        local right="$4"
+        local header
+        header="$(render_header "$title" "$pane_width")"
+        HEADER_LINE_COUNT=$(printf '%s' "$header" | wc -l)
+        if [[ -n "${HEADER_LINE_COUNT_OVERRIDE:-}" ]]; then
+                HEADER_LINE_COUNT="$HEADER_LINE_COUNT_OVERRIDE"
+        fi
+        printf '%s' "$header" >"$left"
+        printf '%s' "$header" >"$right"
+}
 
-        write_header "$title" "$pane_width" >"$left"
-        write_header "$title" "$pane_width" >"$right"
+init_workspace() {
+        local title="$1"
+        declare -g WORKDIR
+        declare -g LEFT_PANE
+        declare -g RIGHT_PANE
+        declare -g BOX_WIDTH
+        declare -g PANE_WIDTH
+        declare -g HEADER_LINE_COUNT
+        WORKDIR="$(mktemp -d)"
+        LEFT_PANE="$WORKDIR/left"
+        RIGHT_PANE="$WORKDIR/right"
+        BOX_WIDTH="$(calc_box_width)"
+        PANE_WIDTH="$(calc_pane_width)"
+        trap '[[ -n "${WORKDIR:-}" ]] && rm -rf "$WORKDIR"' EXIT
+        init_panes "$title" "$PANE_WIDTH" "$LEFT_PANE" "$RIGHT_PANE"
+}
+
+open_vimdiff() {
+        vim -d -R -c 'set shortmess+=FI' -c 'set nofoldenable' -c 'windo set nofoldenable' \
+                -- "$LEFT_PANE" "$RIGHT_PANE" </dev/tty
+}
+
+insert_summary_after_header() {
+        local summary_file="$1"
+        local pane_file="$2"
+        local out_file="$3"
+        local tail_start=$((HEADER_LINE_COUNT + 1))
+        {
+                head -n "$HEADER_LINE_COUNT" "$pane_file"
+                cat "$summary_file"
+                echo
+                tail -n +"$tail_start" "$pane_file"
+        } >"$out_file"
+}
+
+render_unified_to_panes() {
+        local left="$1"
+        local right="$2"
+        local box_width="$3"
 
         awk -v left="$left" -v right="$right" -v box_width="$box_width" '
                 function clean(path) {
@@ -133,181 +177,52 @@ side_by_side_patch() {
                 /^\+/ { print substr($0, 2) >> right; next }
                 /^ / { line = substr($0, 2); print line >> left; print line >> right; next }
                 { next }
-        ' "$patch"
+        '
+}
 
-        vim -d -R -c 'set shortmess+=FI' -c 'set nofoldenable' -c 'windo set nofoldenable' -- "$left" "$right" </dev/tty
+inline_patch() {
+        local patch="$1"
+        require_file "$patch"
+        vim -R -c 'set shortmess+=FI' -c 'set nofoldenable' -c 'set filetype=diff' -- "$patch" </dev/tty
+}
+
+side_by_side_patch() {
+        local patch="$1"
+        require_file "$patch"
+        local title
+        title="PATCHVIEW ($patch)"
+
+        init_workspace "$title"
+        render_unified_to_panes "$LEFT_PANE" "$RIGHT_PANE" "$BOX_WIDTH" <"$patch"
+        open_vimdiff
 }
 
 git_diff_inline() {
-        local tmpdir
-        tmpdir="$(mktemp -d)"
-        local left="$tmpdir/left"
-        local right="$tmpdir/right"
-        local box_width
-        box_width="$(calc_box_width)"
-        local pane_width
-        pane_width="$(calc_pane_width)"
         local title
-        if (( $# > 0 )); then
-                title="GIT DIFF ($*)"
-        else
-                title="GIT DIFF"
-        fi
-        trap '[[ -n "${tmpdir:-}" ]] && rm -rf "$tmpdir"' EXIT
+        title="$(make_title "GIT DIFF" "$@")"
 
-        write_header "$title" "$pane_width" >"$left"
-        write_header "$title" "$pane_width" >"$right"
-
-        git diff "$@" | awk -v left="$left" -v right="$right" -v box_width="$box_width" '
-                function clean(path) {
-                        sub(/^a\//, "", path)
-                        sub(/^b\//, "", path)
-                        return path
-                }
-                function repeat(ch, len,    i, line) {
-                        line = ""
-                        for (i = 0; i < len; i++) {
-                                line = line ch
-                        }
-                        return line
-                }
-                function print_box(dest, name, width,    max, pad, top, mid, bot) {
-                        if (width < 4) {
-                                width = 4
-                        }
-                        max = width - 4
-                        if (length(name) > max) {
-                                name = substr(name, 1, max - 3) "..."
-                        }
-                        pad = max - length(name)
-                        top = "┏" repeat("━", width - 2) "┓"
-                        mid = "┃ " name repeat(" ", pad) " ┃"
-                        bot = "┗" repeat("━", width - 2) "┛"
-                        print top >> dest
-                        print mid >> dest
-                        print bot >> dest
-                }
-                /^diff --git / { next }
-                /^index / { next }
-                /^--- / { old = $2; next }
-                /^\+\+\+ / {
-                        file = $2
-                        if (file == "/dev/null") { file = old }
-                        file = clean(file)
-                        file = "File | " file
-                        print "" >> left
-                        print "" >> right
-                        print_box(left, file, box_width)
-                        print_box(right, file, box_width)
-                        print "" >> left
-                        print "" >> right
-                        next
-                }
-                /^@@/ { next }
-                /^\\ No newline at end of file/ { next }
-                /^-/ { print substr($0, 2) >> left; next }
-                /^\+/ { print substr($0, 2) >> right; next }
-                /^ / { line = substr($0, 2); print line >> left; print line >> right; next }
-                { next }
-        '
-
-        vim -d -R -c 'set shortmess+=FI' -c 'set nofoldenable' -c 'windo set nofoldenable' -- "$left" "$right" </dev/tty
+        init_workspace "$title"
+        git diff "$@" | render_unified_to_panes "$LEFT_PANE" "$RIGHT_PANE" "$BOX_WIDTH"
+        open_vimdiff
 }
 
 git_show_inline() {
-        local tmpdir
-        tmpdir="$(mktemp -d)"
-        local left="$tmpdir/left"
-        local right="$tmpdir/right"
-        local summary="$tmpdir/summary"
-        local box_width
-        box_width="$(calc_box_width)"
-        local pane_width
-        pane_width="$(calc_pane_width)"
         local title
-        if (( $# > 0 )); then
-                title="GIT SHOW ($*)"
-        else
-                title="GIT SHOW"
-        fi
-        trap '[[ -n "${tmpdir:-}" ]] && rm -rf "$tmpdir"' EXIT
+        title="$(make_title "GIT SHOW" "$@")"
 
-        write_header "$title" "$pane_width" >"$left"
-        write_header "$title" "$pane_width" >"$right"
+        init_workspace "$title"
+        local summary="$WORKDIR/summary"
         : >"$summary"
 
-        git show "$@" | awk -v left="$left" -v right="$right" -v box_width="$box_width" -v summary="$summary" '
-                function clean(path) {
-                        sub(/^a\//, "", path)
-                        sub(/^b\//, "", path)
-                        return path
-                }
-                function repeat(ch, len,    i, line) {
-                        line = ""
-                        for (i = 0; i < len; i++) {
-                                line = line ch
-                        }
-                        return line
-                }
-                function print_box(dest, name, width,    max, pad, top, mid, bot) {
-                        if (width < 4) {
-                                width = 4
-                        }
-                        max = width - 4
-                        if (length(name) > max) {
-                                name = substr(name, 1, max - 3) "..."
-                        }
-                        pad = max - length(name)
-                        top = "┏" repeat("━", width - 2) "┓"
-                        mid = "┃ " name repeat(" ", pad) " ┃"
-                        bot = "┗" repeat("━", width - 2) "┛"
-                        print top >> dest
-                        print mid >> dest
-                        print bot >> dest
-                }
-                /^diff --git / { next }
-                /^index / { next }
-                /^--- / { old = $2; next }
-                /^\+\+\+ / {
-                        file = $2
-                        if (file == "/dev/null") { file = old }
-                        file = clean(file)
-                        file = "File | " file
-                        print "" >> left
-                        print "" >> right
-                        print_box(left, file, box_width)
-                        print_box(right, file, box_width)
-                        print "" >> left
-                        print "" >> right
-                        next
-                }
-                /^@@/ { next }
-                /^\\ No newline at end of file/ { next }
-                /^-/ { print substr($0, 2) >> left; next }
-                /^\+/ { print substr($0, 2) >> right; next }
-                /^ / { line = substr($0, 2); print line >> left; print line >> right; next }
-                { next }
-        '
-
+        git show "$@" | render_unified_to_panes "$LEFT_PANE" "$RIGHT_PANE" "$BOX_WIDTH"
         git show --no-patch --stat --summary "$@" >"$summary"
 
         if [[ -s "$summary" ]]; then
-                {
-                        cat "$summary"
-                        echo
-                } | cat - "$left" >"$left.tmp" && mv "$left.tmp" "$left"
-                {
-                        cat "$summary"
-                        echo
-                } | cat - "$right" >"$right.tmp" && mv "$right.tmp" "$right"
+                insert_summary_after_header "$summary" "$LEFT_PANE" "$WORKDIR/left.tmp" && mv "$WORKDIR/left.tmp" "$LEFT_PANE"
+                insert_summary_after_header "$summary" "$RIGHT_PANE" "$WORKDIR/right.tmp" && mv "$WORKDIR/right.tmp" "$RIGHT_PANE"
         fi
 
-        vim -d -R \
-                -c 'set shortmess+=FI' \
-                -c 'set nofoldenable' \
-                -c 'windo set nofoldenable' \
-                -c 'file FileChanges' \
-                -- "$left" "$right" </dev/tty
+        open_vimdiff
 }
 
 mode="${1:-}"
